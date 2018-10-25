@@ -1,0 +1,6 @@
+embs
+__pycache__
+*.pyc
+*.sh
+ckpt
+data
