@@ -201,9 +201,9 @@ def get_minibatch(batch: List[Dict], vocab: Vocabulary, use_cuda: bool) -> Dict[
     outputs['ent_labels'] = torch.LongTensor(outputs['ent_labels'])
     outputs['seq_lens'] = batch_seq_len
     if use_cuda:
-        outputs['tokens'] = outputs['tokens'].cuda(async=True)
-        outputs['token_chars'] = outputs['token_chars'].cuda(async=True)
-        outputs['ent_labels'] = outputs['ent_labels'].cuda(async=True)
+        outputs['tokens'] = outputs['tokens'].cuda(non_blocking=True)
+        outputs['token_chars'] = outputs['token_chars'].cuda(non_blocking=True)
+        outputs['ent_labels'] = outputs['ent_labels'].cuda(non_blocking=True)
     return outputs
 
 def print_predictions(datasets: List,

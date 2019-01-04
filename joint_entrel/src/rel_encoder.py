@@ -36,7 +36,9 @@ class RelFeatureExtractor(nn.Module):
         self.ent_vocab_size = vocab.get_vocab_size("ent_labels")
         self.conv_input_size = self.seq_encoder.hidden_size + self.ent_vocab_size
         self.max_sent_len = max_sent_len
-        self.ent_emb_oh = np.eye(self.ent_vocab_size)
+        self.ent_emb_oh = torch.Tensor(np.eye(self.ent_vocab_size))
+        if use_cuda:
+            self.ent_emb_oh = self.ent_emb_oh.cuda(non_blocking=True)
 
         self.e1_convs = nn.ModuleList([nn.Conv2d(1,
                                                  out_channels,
@@ -100,7 +102,7 @@ class RelFeatureExtractor(nn.Module):
             vecs = torch.Tensor(vecs)
             
             if self.use_cuda:
-                vecs = vecs.cuda(async=True)
+                vecs = vecs.cuda(non_blocking=True)
             dist_vecs.append(vecs)
         dist_vecs = torch.stack(dist_vecs)
         return dist_vecs
@@ -130,7 +132,7 @@ class RelFeatureExtractor(nn.Module):
         if s >= e:
             zero_vec = torch.zeros(h_size)
             if self.use_cuda:
-                zero_vec = zero_vec.cuda(async=True)
+                zero_vec = zero_vec.cuda(non_blocking=True)
             return zero_vec
         if s == 0:
             return fward_rnn_output[e-1]
@@ -141,7 +143,7 @@ class RelFeatureExtractor(nn.Module):
         if s >= e:
             zero_vec = torch.zeros(h_size)
             if self.use_cuda:
-                zero_vec = zero_vec.cuda(async=True)
+                zero_vec = zero_vec.cuda(non_blocking=True)
             return zero_vec
         if e == max_len:
             return bward_rnn_output[b]
@@ -175,7 +177,7 @@ class RelFeatureExtractor(nn.Module):
         def init_pad_h():
             pad_h = torch.zeros(1, self.conv_input_size)
             if self.use_cuda:
-                pad_h = pad_h.cuda(async=True)
+                pad_h = pad_h.cuda(non_blocking=True)
             return pad_h
 
         if max_len == 0:
@@ -196,8 +198,6 @@ class RelFeatureExtractor(nn.Module):
             ent_labels: List[torch.LongTensor]) -> List[torch.Tensor]:
         seq_encoder = torch.stack(seq_encoder, 0) 
         ent_labels = torch.stack(ent_labels, 0)
-        ent_embs = torch.Tensor(self.ent_emb_oh[ent_labels])
-        if self.use_cuda:
-            ent_embs = ent_embs.cuda(async=True)
+        ent_embs = self.ent_emb_oh[ent_labels]
         batch_word_repr = torch.cat([seq_encoder, ent_embs], 2)
         return batch_word_repr

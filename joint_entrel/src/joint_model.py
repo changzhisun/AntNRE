@@ -80,7 +80,7 @@ class JointModel(nn.Module):
             zero_loss = torch.Tensor([0])
             zero_loss.requires_grad = True
             if self.use_cuda:
-                zero_loss = zero_loss.cuda(async=True)
+                zero_loss = zero_loss.cuda(non_blocking=True)
             outputs['rel_loss'] = zero_loss[0]
             outputs['all_rel_pred'] = [[] for _ in batch['seq_lens']]
             outputs['all_candi_rels'] = [[] for _ in batch['seq_lens']]
@@ -100,7 +100,7 @@ class JointModel(nn.Module):
             rel_batch['sch_ent_labels'].extend([batch['sch_ent_labels'][i] for _ in range(candi_num)])
         rel_batch['all_rel_labels'] = torch.LongTensor(rel_batch['all_rel_labels'])
         if self.use_cuda:
-            rel_batch['all_rel_labels'] = rel_batch['all_rel_labels'].cuda(async=True)
+            rel_batch['all_rel_labels'] = rel_batch['all_rel_labels'].cuda(non_blocking=True)
         return rel_batch
 
     def create_rel_inputs(self,
