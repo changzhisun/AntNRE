@@ -14,12 +14,13 @@ class VanillaSoftmaxDecoder(nn.Module):
 
     def __init__(self,
                  hidden_size: int,
-                 tag_size: int) -> None:
+                 tag_size: int,
+                 bias: bool = True) -> None:
         super(VanillaSoftmaxDecoder, self).__init__()
         self.hidden_size = hidden_size
         self.tag_size = tag_size
 
-        self.hidden2tag = nn.Linear(hidden_size, self.tag_size)
+        self.hidden2tag = nn.Linear(hidden_size, self.tag_size, bias=bias)
         self.loss_function = nn.CrossEntropyLoss()
 
     def forward(self,
