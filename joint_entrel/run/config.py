@@ -29,7 +29,7 @@ class Configurable:
                     print(section, k, v)
         self._config = config
         if not os.path.isdir(self.save_dir):
-            os.mkdir(self.save_dir)
+            os.makedirs(self.save_dir)
             os.mkdir(os.path.join(self.save_dir, "minibatch"))
         config.write(open(self.config_file, "w", encoding="utf8"))
         print("Loaded config file successful.")
