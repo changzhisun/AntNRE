@@ -7,7 +7,7 @@ Created on 18/09/21 15:48:17
 """
 import os
 import sys
-sys.path.append('..')
+sys.path.append("..")
 import argparse
 import json
 from typing import Dict, List, Any
@@ -17,17 +17,18 @@ import torch
 import torch.optim as optim
 import numpy as np
 from torch.autograd import Variable
+from allennlp.modules.span_extractors.bidirectional_endpoint_span_extractor import BidirectionalEndpointSpanExtractor
+from allennlp.modules.span_extractors.endpoint_span_extractor import EndpointSpanExtractor
 
 from config import Configurable
 from antNRE.lib import vocabulary, util
-from antNRE.src.seq_encoder import BiLSTMEncoder
+from antNRE.modules.seq2seq_encoders.seq2seq_bilstm import BiLSTMEncoder
 from antNRE.src.seq_decoder import SeqSoftmaxDecoder
 from antNRE.src.decoder import VanillaSoftmaxDecoder
 from antNRE.src.word_encoder import WordCharEncoder
 from entrel_eval import eval_file
-from src.ent_model import EntModel
 #  from src.rel_encoder import RelFeatureExtractor
-#  from src.joint_model import JointModel
+from src.joint_model import JointModel
 import lib.util as myutil
 
 torch.manual_seed(5216) # CPU random seed
@@ -66,7 +67,8 @@ namespace_counter = myutil.create_counter(train_corpus + dev_corpus + test_corpu
 for namespace in namespace_counter.keys():
     print(namespace, len(namespace_counter[namespace]))
 
-tokens_to_add = {'rel_labels': ["None"], 'ent_ids_labels': ["None"]}
+#  tokens_to_add = {'rel_labels': ["None"], 'ent_ids_labels': ["None"]}
+tokens_to_add = {'rel_labels': ["None"]}
 vocab = vocabulary.Vocabulary(namespace_counter, tokens_to_add=tokens_to_add)
 print(vocab)
 
@@ -91,19 +93,19 @@ word_encoder_kwargs = {
 }
 word_encoder = WordCharEncoder(**word_encoder_kwargs)
 
-seq_encoder_kwargs = {
-    'word_encoder_size': word_encoder_size,
+seq2seq_encoder_kwargs = {
+    'input_size': word_encoder_size,
     'hidden_size': config.lstm_hiddens,
     'num_layers': config.lstm_layers,
     'bidirectional': True,
     'dropout': config.dropout,
 }
-seq_encoder = BiLSTMEncoder(**seq_encoder_kwargs)
-seq_decoder = SeqSoftmaxDecoder(hidden_size=config.lstm_hiddens,
-                                tag_size=vocab.get_vocab_size("ent_span_labels"))
+seq2seq_encoder = BiLSTMEncoder(**seq2seq_encoder_kwargs)
+ent_span_decoder = SeqSoftmaxDecoder(hidden_size=seq2seq_encoder.get_output_dim(),
+                                     tag_size=vocab.get_vocab_size("ent_span_labels"))
 rel_feat_kwargs = {
     "word_encoder": word_encoder,
-    "seq_encoder": seq_encoder,
+    "seq_encoder": seq2seq_encoder,
     "vocab": vocab,
     "out_channels": config.rel_output_channels,
     "kernel_sizes": config.rel_kernel_sizes,
@@ -111,20 +113,19 @@ rel_feat_kwargs = {
     "dropout": config.dropout,
     "use_cuda": config.use_cuda
 }
-rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
-                                    tag_size=vocab.get_vocab_size("rel_labels"))
-mymodel = EntModel(word_encoder,
-                   seq_encoder,
-                   seq_decoder)
+ent_ids_span_extractor = EndpointSpanExtractor(
+    input_dim = config.lstm_hiddens)
+ent_ids_decoder = VanillaSoftmaxDecoder(hidden_size=ent_ids_span_extractor.get_output_dim(),
+                                        tag_size=vocab.get_vocab_size("ent_ids_labels"))
 #  rel_feat_extractor = RelFeatureExtractor(**rel_feat_kwargs)
-#  mymodel = JointModel(word_encoder,
-                     #  seq_encoder,
-                     #  seq_decoder, 
-                     #  rel_feat_extractor,
-                     #  rel_decoder,
-                     #  config.schedule_k,
-                     #  vocab,
-                     #  config.use_cuda)
+mymodel = JointModel(word_encoder,
+                     seq2seq_encoder,
+                     ent_span_decoder, 
+                     ent_ids_span_extractor,
+                     ent_ids_decoder,
+                     config.schedule_k,
+                     vocab,
+                     config.use_cuda)
 
 if config.use_cuda:
     mymodel.cuda()
@@ -142,12 +143,13 @@ def create_batch_list(sort_batch_tensor: Dict[str, Any],
     for k in range(len(outputs['ent_span_pred'])):
         instance = {}
         instance['tokens'] = sort_batch_tensor['tokens'][k].cpu().numpy()
-        #  instance['ent_labels'] = sort_batch_tensor['ent_labels'][k].cpu().numpy()
+        instance['ent_labels'] = sort_batch_tensor['ent_labels'][k].cpu().numpy()
         instance['ent_span_labels'] = sort_batch_tensor['ent_span_labels'][k].cpu().numpy()
 
         instance['candi_rels'] = sort_batch_tensor['candi_rels'][k]
         instance['rel_labels'] = sort_batch_tensor['rel_labels'][k]
         instance['ent_span_pred'] = outputs['ent_span_pred'][k].cpu().numpy()
+        instance['all_ent_pred'] = outputs['all_ent_pred'][k]
         #  instance['all_candi_rels'] = outputs['all_candi_rels'][k]
         #  instance['all_rel_pred'] = outputs['all_rel_pred'][k]
         instance['all_candi_rels'] = []
@@ -164,6 +166,7 @@ def step(batch: List[Dict]) -> (List[Dict], Dict):
     #  batch_outputs['ent_loss'] = outputs['ent_loss']
     #  batch_outputs['rel_loss'] = outputs['rel_loss']
     batch_outputs['ent_span_loss'] = outputs['ent_span_loss']
+    batch_outputs['ent_ids_loss'] = outputs['ent_ids_loss']
     return new_batch, batch_outputs
 
 def predict_all(corpus) -> None: 
@@ -182,5 +185,8 @@ for title, corpus in zip( ["train", "dev", "test"], [train_corpus, dev_corpus, t
     print("\nEvaluating %s" % title)
     new_corpus = predict_all(corpus)
     eval_path = os.path.join(config.save_dir, "final.%s.output" % title)
+    eval_ent_span_path = os.path.join(config.save_dir, "final.%s.output.ent_span" % title)
+    myutil.print_ent_span_predictions(new_corpus, eval_ent_span_path, vocab)
     myutil.print_predictions(new_corpus, eval_path, vocab)
+    eval_file(eval_ent_span_path)
     eval_file(eval_path)

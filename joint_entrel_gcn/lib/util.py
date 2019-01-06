@@ -235,15 +235,15 @@ def print_predictions(datasets: List,
         for instance in datasets:
             seq_len = int((instance['ent_span_labels'] >= 0).sum())
             for idx, true_label, pred_label in zip(instance['tokens'][:seq_len],
-                                                   instance['ent_span_labels'][:seq_len],
-                                                   instance['ent_span_pred'][:seq_len]):
+                                                   instance['ent_labels'][:seq_len],
+                                                   instance['all_ent_pred'][:seq_len]):
                 token = vocab.get_token_from_index(idx, "tokens")
-                true_label = vocab.get_token_from_index(true_label, "ent_span_labels")
-                pred_label = vocab.get_token_from_index(pred_label, "ent_span_labels")
-                if true_label != "O":
-                    true_label = true_label + "-ENT"
-                if pred_label != "O":
-                    pred_label = pred_label + "-ENT"
+                true_label = vocab.get_token_from_index(true_label, "ent_labels")
+                pred_label = vocab.get_token_from_index(pred_label, "ent_labels")
+                #  if true_label != "O":
+                    #  true_label = true_label + "-ENT"
+                #  if pred_label != "O":
+                    #  pred_label = pred_label + "-ENT"
                 print("{}\t{}\t{}".format(token, true_label, pred_label), file=f)
             
             for (s, e), r in zip(instance['candi_rels'], instance['rel_labels']):
@@ -264,4 +264,23 @@ def print_predictions(datasets: List,
                     s, e = e, s
                 r = r[:-3]
                 print("Rel-Pred\t{}\t{}\t{}".format(s, e, r), file=f)
+            print(file=f)
+
+def print_ent_span_predictions(datasets: List,
+                               filename: str,
+                               vocab: Vocabulary) -> None:
+    with open(filename, "w", encoding="utf8") as f:
+        for instance in datasets:
+            seq_len = int((instance['ent_span_labels'] >= 0).sum())
+            for idx, true_label, pred_label in zip(instance['tokens'][:seq_len],
+                                                   instance['ent_span_labels'][:seq_len],
+                                                   instance['ent_span_pred'][:seq_len]):
+                token = vocab.get_token_from_index(idx, "tokens")
+                true_label = vocab.get_token_from_index(true_label, "ent_span_labels")
+                pred_label = vocab.get_token_from_index(pred_label, "ent_span_labels")
+                if true_label != "O":
+                    true_label = true_label + "-ENT"
+                if pred_label != "O":
+                    pred_label = pred_label + "-ENT"
+                print("{}\t{}\t{}".format(token, true_label, pred_label), file=f)
             print(file=f)
