@@ -290,6 +290,7 @@ class Vocabulary:
         return self._token_to_index[namespace]
 
     def get_token_index(self, token: str, namespace: str = 'tokens') -> int:
+        assert namespace in self._token_to_index 
         if token in self._token_to_index[namespace]:
             return self._token_to_index[namespace][token]
         else:
