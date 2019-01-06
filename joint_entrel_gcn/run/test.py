@@ -67,8 +67,8 @@ namespace_counter = myutil.create_counter(train_corpus + dev_corpus + test_corpu
 for namespace in namespace_counter.keys():
     print(namespace, len(namespace_counter[namespace]))
 
-#  tokens_to_add = {'rel_labels': ["None"], 'ent_ids_labels': ["None"]}
-tokens_to_add = {'rel_labels': ["None"]}
+tokens_to_add = {'rel_labels': ["None"], 'ent_ids_labels': ["None"]}
+#  tokens_to_add = {'rel_labels': ["None"]}
 vocab = vocabulary.Vocabulary(namespace_counter, tokens_to_add=tokens_to_add)
 print(vocab)
 

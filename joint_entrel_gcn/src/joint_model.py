@@ -110,6 +110,8 @@ class JointModel(nn.Module):
             cur_ent_ids_pred = ent_ids_outputs['predict'][j: j + cur_ent_ids_num].cpu().numpy()
             for (start, end), t in zip(cur_ent_ids, cur_ent_ids_pred):
                 t_label_text = self.vocab.get_token_from_index(t, "ent_ids_labels")
+                if t_label_text == "None":
+                    continue
                 if start == end:
                     start_label = self.vocab.get_token_index("U-%s" % t_label_text, "ent_labels")
                     cur_ent_pred[start] = start_label

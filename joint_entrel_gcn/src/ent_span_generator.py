@@ -64,13 +64,11 @@ class EntSpanGenerator:
         y = [ yy if yy == "O" else yy + "-ENT" for yy in y]
         t_entity = self.get_entity(y)
         for e in t_entity['ENT']:
+            cur_ent_ids.append(e)
             if e in gold_dict:
-                cur_ent_ids.append(e)
                 cur_ent_ids_label.append(gold_dict[e])
             else:
-                if not training:
-                    cur_ent_ids.append(e)
-                    cur_ent_ids_label.append(0)
+                cur_ent_ids_label.append(self.vocab.get_token_index("None", "ent_ids_labels"))
         return cur_ent_ids, cur_ent_ids_label
 
     def get_entity(self, y: List[str]) -> Dict[str, list]:
