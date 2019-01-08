@@ -240,10 +240,6 @@ def print_predictions(datasets: List,
                 token = vocab.get_token_from_index(idx, "tokens")
                 true_label = vocab.get_token_from_index(true_label, "ent_labels")
                 pred_label = vocab.get_token_from_index(pred_label, "ent_labels")
-                #  if true_label != "O":
-                    #  true_label = true_label + "-ENT"
-                #  if pred_label != "O":
-                    #  pred_label = pred_label + "-ENT"
                 print("{}\t{}\t{}".format(token, true_label, pred_label), file=f)
             
             for (s, e), r in zip(instance['candi_rels'], instance['rel_labels']):

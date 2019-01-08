@@ -332,4 +332,5 @@ def eval_file_by_sample(filename):
 
 if __name__ == '__main__':
     #  sys.exit(main(sys.argv))
-    eval_file("../ckpt/default/dev.output")
+    eval_file("../ckpt/entrel/final.test.output")
+    eval_file("../ckpt/entrel/final.test.output.ent_span")

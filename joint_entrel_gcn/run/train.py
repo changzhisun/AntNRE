@@ -27,9 +27,9 @@ from antNRE.src.seq_decoder import SeqSoftmaxDecoder
 from antNRE.src.decoder import VanillaSoftmaxDecoder
 from antNRE.src.word_encoder import WordCharEncoder
 from entrel_eval import eval_file
-from src.ent_model import EntModel
-#  from src.rel_encoder import RelFeatureExtractor
 from src.joint_model import JointModel
+from src.ent_span_feat_extractor import EntSpanFeatExtractor
+from src.rel_feat_extractor import RelFeatExtractor
 import lib.util as myutil
 
 torch.manual_seed(5216) # CPU random seed
@@ -69,6 +69,7 @@ for namespace in namespace_counter.keys():
 #  tokens_to_add = {'rel_labels': ["None"], 'ent_ids_labels': ["None"]}
 tokens_to_add = {'rel_labels': ["None"], "ent_ids_labels": ["None"]}
 vocab = vocabulary.Vocabulary(namespace_counter, tokens_to_add=tokens_to_add)
+print(vocab)
 
 train_corpus = myutil.data2number(train_corpus, vocab)
 dev_corpus = myutil.data2number(dev_corpus, vocab)
@@ -105,29 +106,34 @@ seq2seq_encoder_kwargs = {
 seq2seq_encoder = BiLSTMEncoder(**seq2seq_encoder_kwargs)
 ent_span_decoder = SeqSoftmaxDecoder(hidden_size=seq2seq_encoder.get_output_dim(),
                                      tag_size=vocab.get_vocab_size("ent_span_labels"))
-#  rel_feat_kwargs = {
-    #  "word_encoder": word_encoder,
-    #  "seq_encoder": seq_encoder,
-    #  "vocab": vocab,
-    #  "out_channels": config.rel_output_channels,
-    #  "kernel_sizes": config.rel_kernel_sizes,
-    #  "max_sent_len": max_sent_len,
-    #  "dropout": config.dropout,
-    #  "use_cuda": config.use_cuda
-#  }
 ent_ids_span_extractor = EndpointSpanExtractor(
     input_dim = config.lstm_hiddens)
-ent_ids_decoder = VanillaSoftmaxDecoder(hidden_size=ent_ids_span_extractor.get_output_dim(),
+ent_span_feat_extractor = EntSpanFeatExtractor(
+    config.lstm_hiddens,
+    ent_ids_span_extractor,
+    config.dropout,
+    config.use_cuda)
+
+context_span_extractor = BidirectionalEndpointSpanExtractor(
+    input_dim = config.lstm_hiddens)
+rel_feat_extractor = RelFeatExtractor(
+    config.lstm_hiddens,
+    context_span_extractor,
+    config.dropout,
+    config.use_cuda)
+
+
+ent_ids_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
                                         tag_size=vocab.get_vocab_size("ent_ids_labels"))
-#  rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
-                                    #  tag_size=vocab.get_vocab_size("rel_labels"))
-#  rel_feat_extractor = RelFeatureExtractor(**rel_feat_kwargs)
+rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
+                                    tag_size=vocab.get_vocab_size("rel_labels"))
 mymodel = JointModel(word_encoder,
                      seq2seq_encoder,
                      ent_span_decoder, 
-                     ent_ids_span_extractor,
+                     ent_span_feat_extractor,
                      ent_ids_decoder,
-                     config.schedule_k,
+                     rel_feat_extractor,
+                     rel_decoder,
                      vocab,
                      config.use_cuda)
 
@@ -158,33 +164,36 @@ def create_batch_list(sort_batch_tensor: Dict[str, Any],
         instance['rel_labels'] = sort_batch_tensor['rel_labels'][k]
         instance['ent_span_pred'] = outputs['ent_span_pred'][k].cpu().numpy()
         instance['all_ent_pred'] = outputs['all_ent_pred'][k]
-        #  instance['all_candi_rels'] = outputs['all_candi_rels'][k]
-        #  instance['all_rel_pred'] = outputs['all_rel_pred'][k]
-        instance['all_candi_rels'] = []
-        instance['all_rel_pred'] = []
+        instance['all_candi_rels'] = outputs['all_candi_rels'][k]
+        instance['all_rel_pred'] = outputs['all_rel_pred'][k]
+        #  print(instance['all_rel_pred'])
+        assert len(instance['all_candi_rels']) == len(instance['all_rel_pred'])
         new_batch.append(instance)
     return new_batch
 
 def step(batch: List[Dict]) -> (List[Dict], Dict):
     sort_batch_tensor = myutil.get_minibatch(batch, vocab, config.use_cuda)
-    sort_batch_tensor['i_epoch'] = i
     outputs = mymodel(sort_batch_tensor)
     new_batch = create_batch_list(sort_batch_tensor, outputs)
     batch_outputs = {}
     batch_outputs['ent_span_loss'] = outputs['ent_span_loss']
     batch_outputs['ent_ids_loss'] = outputs['ent_ids_loss']
+    batch_outputs['rel_loss'] = outputs['rel_loss']
     return new_batch, batch_outputs
 
 def train_step(batch: List[Dict]) -> None:
     optimizer.zero_grad()
     mymodel.train()
     _, outputs = step(batch)
-    loss = outputs['ent_span_loss'] + outputs['ent_ids_loss']
+    loss = outputs['ent_span_loss'] + outputs['ent_ids_loss'] + outputs['rel_loss']
     loss.backward()
     torch.nn.utils.clip_grad_norm_(parameters, config.clip_c)
     optimizer.step()
-    print("Epoch : %d Minibatch : %d Loss : %.5f(%.5f, %.5f)" % (
-        i, j, loss.item(), outputs['ent_span_loss'].item(), outputs['ent_ids_loss'].item()))
+    print("Epoch : %d Minibatch : %d Loss : %.5f(%.5f, %.5f, %.5f)" % (
+          i, j, loss.item(),
+          outputs['ent_span_loss'].item(),
+          outputs['ent_ids_loss'].item(),
+          outputs['rel_loss'].item()))
 
 def dev_step() -> float: 
     optimizer.zero_grad()
@@ -192,22 +201,32 @@ def dev_step() -> float:
     new_corpus = []
     ent_span_losses = []
     ent_ids_losses = []
+    rel_losses = []
     for k in range(0, len(dev_corpus), batch_size):
         batch = dev_corpus[k: k + batch_size]
         new_batch, outputs = step(batch)
         new_corpus.extend(new_batch)
         ent_span_losses.append(outputs['ent_span_loss'].item())
         ent_ids_losses.append(outputs['ent_ids_loss'].item())
+        rel_losses.append(outputs['rel_loss'].item())
     avg_ent_span_loss = np.mean(ent_span_losses)
     avg_ent_ids_loss = np.mean(ent_ids_losses)
-    loss = avg_ent_span_loss + avg_ent_ids_loss
+    avg_rel_loss = np.mean(rel_losses)
+    loss = avg_ent_span_loss + avg_ent_ids_loss + avg_rel_loss
 
-    print("Epoch : %d Minibatch : %d Avg Loss : %.5f(%.5f, %.5f)" % (i, j, loss, avg_ent_span_loss, avg_ent_ids_loss))
+    print("Epoch : %d Minibatch : %d Avg Loss : %.5f(%.5f, %.5f, %.5f)" % (
+          i, j, loss,
+          avg_ent_span_loss, 
+          avg_ent_ids_loss,
+          avg_rel_loss))
 
     eval_path = os.path.join(config.save_dir, "validate.dev.output")
+    eval_ent_span_path = os.path.join(config.save_dir, "validate.dev.output.ent_span")
     myutil.print_predictions(new_corpus, eval_path, vocab)
+    #  myutil.print_ent_span_predictions(new_corpus, eval_ent_span_path, vocab)
     entity_score, relation_score = eval_file(eval_path)
-    return entity_score
+    #  eval_file(eval_ent_span_path)
+    return relation_score
 
 
 batch_size = config.batch_size

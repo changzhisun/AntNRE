@@ -27,8 +27,9 @@ from antNRE.src.seq_decoder import SeqSoftmaxDecoder
 from antNRE.src.decoder import VanillaSoftmaxDecoder
 from antNRE.src.word_encoder import WordCharEncoder
 from entrel_eval import eval_file
-#  from src.rel_encoder import RelFeatureExtractor
 from src.joint_model import JointModel
+from src.ent_span_feat_extractor import EntSpanFeatExtractor
+from src.rel_feat_extractor import RelFeatExtractor
 import lib.util as myutil
 
 torch.manual_seed(5216) # CPU random seed
@@ -67,8 +68,8 @@ namespace_counter = myutil.create_counter(train_corpus + dev_corpus + test_corpu
 for namespace in namespace_counter.keys():
     print(namespace, len(namespace_counter[namespace]))
 
-tokens_to_add = {'rel_labels': ["None"], 'ent_ids_labels': ["None"]}
-#  tokens_to_add = {'rel_labels': ["None"]}
+#  tokens_to_add = {'rel_labels': ["None"], 'ent_ids_labels': ["None"]}
+tokens_to_add = {'rel_labels': ["None"], "ent_ids_labels": ["None"]}
 vocab = vocabulary.Vocabulary(namespace_counter, tokens_to_add=tokens_to_add)
 print(vocab)
 
@@ -103,27 +104,34 @@ seq2seq_encoder_kwargs = {
 seq2seq_encoder = BiLSTMEncoder(**seq2seq_encoder_kwargs)
 ent_span_decoder = SeqSoftmaxDecoder(hidden_size=seq2seq_encoder.get_output_dim(),
                                      tag_size=vocab.get_vocab_size("ent_span_labels"))
-rel_feat_kwargs = {
-    "word_encoder": word_encoder,
-    "seq_encoder": seq2seq_encoder,
-    "vocab": vocab,
-    "out_channels": config.rel_output_channels,
-    "kernel_sizes": config.rel_kernel_sizes,
-    "max_sent_len": max_sent_len,
-    "dropout": config.dropout,
-    "use_cuda": config.use_cuda
-}
 ent_ids_span_extractor = EndpointSpanExtractor(
     input_dim = config.lstm_hiddens)
-ent_ids_decoder = VanillaSoftmaxDecoder(hidden_size=ent_ids_span_extractor.get_output_dim(),
+ent_span_feat_extractor = EntSpanFeatExtractor(
+    config.lstm_hiddens,
+    ent_ids_span_extractor,
+    config.dropout,
+    config.use_cuda)
+
+context_span_extractor = BidirectionalEndpointSpanExtractor(
+    input_dim = config.lstm_hiddens)
+rel_feat_extractor = RelFeatExtractor(
+    config.lstm_hiddens,
+    context_span_extractor,
+    config.dropout,
+    config.use_cuda)
+
+
+ent_ids_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
                                         tag_size=vocab.get_vocab_size("ent_ids_labels"))
-#  rel_feat_extractor = RelFeatureExtractor(**rel_feat_kwargs)
+rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
+                                    tag_size=vocab.get_vocab_size("rel_labels"))
 mymodel = JointModel(word_encoder,
                      seq2seq_encoder,
                      ent_span_decoder, 
-                     ent_ids_span_extractor,
+                     ent_span_feat_extractor,
                      ent_ids_decoder,
-                     config.schedule_k,
+                     rel_feat_extractor,
+                     rel_decoder,
                      vocab,
                      config.use_cuda)
 
@@ -150,24 +158,17 @@ def create_batch_list(sort_batch_tensor: Dict[str, Any],
         instance['rel_labels'] = sort_batch_tensor['rel_labels'][k]
         instance['ent_span_pred'] = outputs['ent_span_pred'][k].cpu().numpy()
         instance['all_ent_pred'] = outputs['all_ent_pred'][k]
-        #  instance['all_candi_rels'] = outputs['all_candi_rels'][k]
-        #  instance['all_rel_pred'] = outputs['all_rel_pred'][k]
-        instance['all_candi_rels'] = []
-        instance['all_rel_pred'] = []
+        instance['all_candi_rels'] = outputs['all_candi_rels'][k]
+        instance['all_rel_pred'] = outputs['all_rel_pred'][k]
+        assert len(instance['all_candi_rels']) == len(instance['all_rel_pred'])
         new_batch.append(instance)
     return new_batch
 
 def step(batch: List[Dict]) -> (List[Dict], Dict):
     sort_batch_tensor = myutil.get_minibatch(batch, vocab, config.use_cuda)
-    sort_batch_tensor['i_epoch'] = None
     outputs = mymodel(sort_batch_tensor)
     new_batch = create_batch_list(sort_batch_tensor, outputs)
-    batch_outputs = {}
-    #  batch_outputs['ent_loss'] = outputs['ent_loss']
-    #  batch_outputs['rel_loss'] = outputs['rel_loss']
-    batch_outputs['ent_span_loss'] = outputs['ent_span_loss']
-    batch_outputs['ent_ids_loss'] = outputs['ent_ids_loss']
-    return new_batch, batch_outputs
+    return new_batch
 
 def predict_all(corpus) -> None: 
     mymodel.eval()
@@ -175,7 +176,7 @@ def predict_all(corpus) -> None:
     for k in range(0,len(corpus), batch_size):
         print("[ %d / %d ]" % (len(corpus), min(len(corpus), k + batch_size)))
         batch = corpus[k: k + batch_size]
-        new_batch, outputs = step(batch)
+        new_batch = step(batch)
         new_corpus.extend(new_batch)
     return new_corpus
 
