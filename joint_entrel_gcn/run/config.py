@@ -142,6 +142,10 @@ class Configurable:
         return self._config.getint('Run','batch_size')
 
     @property
+    def patience(self):
+        return self._config.getint('Run','patience')
+
+    @property
     def validate_every(self):
         return self._config.getint('Run','validate_every')
 

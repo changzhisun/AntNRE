@@ -17,6 +17,7 @@ import torch
 import torch.optim as optim
 import numpy as np
 from torch.autograd import Variable
+from tensorboardX import SummaryWriter
 from allennlp.modules.span_extractors.bidirectional_endpoint_span_extractor import BidirectionalEndpointSpanExtractor
 from allennlp.modules.span_extractors.endpoint_span_extractor import EndpointSpanExtractor
 
@@ -26,7 +27,10 @@ from antNRE.modules.seq2seq_encoders.seq2seq_bilstm import BiLSTMEncoder
 from antNRE.src.seq_decoder import SeqSoftmaxDecoder
 from antNRE.src.decoder import VanillaSoftmaxDecoder
 from antNRE.src.word_encoder import WordCharEncoder
+from antNRE.modules.span_extractors.sum_span_extractor import SumSpanExtractor
+from antNRE.modules.span_extractors.cnn_span_extractor import CnnSpanExtractor
 from entrel_eval import eval_file
+from entrel_eval import Metrics
 from src.joint_model import JointModel
 from src.ent_span_feat_extractor import EntSpanFeatExtractor
 from src.rel_feat_extractor import RelFeatExtractor
@@ -106,16 +110,30 @@ seq2seq_encoder_kwargs = {
 seq2seq_encoder = BiLSTMEncoder(**seq2seq_encoder_kwargs)
 ent_span_decoder = SeqSoftmaxDecoder(hidden_size=seq2seq_encoder.get_output_dim(),
                                      tag_size=vocab.get_vocab_size("ent_span_labels"))
-ent_ids_span_extractor = EndpointSpanExtractor(
-    input_dim = config.lstm_hiddens)
+#  ent_ids_span_extractor = EndpointSpanExtractor(
+    #  input_dim = config.lstm_hiddens)
+#  ent_ids_span_extractor = SumSpanExtractor(
+    #  input_dim = config.lstm_hiddens)
+ent_ids_span_extractor = CnnSpanExtractor(
+    config.lstm_hiddens,
+    config.rel_output_channels,
+    config.rel_kernel_sizes)
+print(ent_ids_span_extractor)
 ent_span_feat_extractor = EntSpanFeatExtractor(
     config.lstm_hiddens,
     ent_ids_span_extractor,
     config.dropout,
     config.use_cuda)
 
-context_span_extractor = BidirectionalEndpointSpanExtractor(
-    input_dim = config.lstm_hiddens)
+#  context_span_extractor = BidirectionalEndpointSpanExtractor(
+    #  input_dim = config.lstm_hiddens)
+#  context_span_extractor = SumSpanExtractor(
+    #  input_dim = config.lstm_hiddens)
+context_span_extractor = CnnSpanExtractor(
+    config.lstm_hiddens,
+    config.rel_output_channels,
+    config.rel_kernel_sizes)
+print(context_span_extractor)
 rel_feat_extractor = RelFeatExtractor(
     config.lstm_hiddens,
     context_span_extractor,
@@ -194,6 +212,11 @@ def train_step(batch: List[Dict]) -> None:
           outputs['ent_span_loss'].item(),
           outputs['ent_ids_loss'].item(),
           outputs['rel_loss'].item()))
+    writer.add_scalar("Train/Loss", loss.item(), num_iter)
+    writer.add_scalar("Train/EntSpanLoss", outputs['ent_span_loss'].item(), num_iter)
+    writer.add_scalar("Train/EntLoss", outputs['ent_ids_loss'].item(), num_iter)
+    writer.add_scalar("Train/RelLoss", outputs['rel_loss'].item(), num_iter)
+
 
 def dev_step() -> float: 
     optimizer.zero_grad()
@@ -214,23 +237,38 @@ def dev_step() -> float:
     avg_rel_loss = np.mean(rel_losses)
     loss = avg_ent_span_loss + avg_ent_ids_loss + avg_rel_loss
 
-    print("Epoch : %d Minibatch : %d Avg Loss : %.5f(%.5f, %.5f, %.5f)" % (
-          i, j, loss,
+    print("Epoch : %d Avg Loss : %.5f(%.5f, %.5f, %.5f)" % (
+          i, loss,
           avg_ent_span_loss, 
           avg_ent_ids_loss,
           avg_rel_loss))
+    writer.add_scalar("Dev/Loss", loss, num_iter)
+    writer.add_scalar("Dev/EntSpanLoss", avg_ent_span_loss, num_iter)
+    writer.add_scalar("Dev/EntLoss", avg_ent_ids_loss, num_iter)
+    writer.add_scalar("Dev/RelLoss", avg_rel_loss, num_iter)
 
     eval_path = os.path.join(config.save_dir, "validate.dev.output")
     eval_ent_span_path = os.path.join(config.save_dir, "validate.dev.output.ent_span")
     myutil.print_predictions(new_corpus, eval_path, vocab)
     #  myutil.print_ent_span_predictions(new_corpus, eval_ent_span_path, vocab)
-    entity_score, relation_score = eval_file(eval_path)
+    entity, relation= eval_file(eval_path)
     #  eval_file(eval_ent_span_path)
-    return relation_score
+
+
+    writer.add_scalar("Dev/EntPrecision", entity.prec, num_iter)
+    writer.add_scalar("Dev/EntRecall", entity.rec, num_iter)
+    writer.add_scalar("Dev/EntFscore", entity.fscore, num_iter)
+    writer.add_scalar("Dev/RelPrecision", relation.prec, num_iter)
+    writer.add_scalar("Dev/RelRecall", relation.rec, num_iter)
+    writer.add_scalar("Dev/RelFscore", relation.fscore, num_iter)
+    return relation.fscore
 
 
 batch_size = config.batch_size
 best_f1 = 0.0
+cur_patience = 0
+num_iter = 0
+writer = SummaryWriter(os.path.join(config.save_dir, "runs"))
 for i in range(config.train_iters):
     np.random.shuffle(train_corpus)
 
@@ -239,19 +277,18 @@ for i in range(config.train_iters):
         batch = train_corpus[j: j + batch_size]
 
         train_step(batch)
-        #  sys.exit()
+        num_iter += 1
 
-        if j > 0 and j % config.validate_every == 0:
+    print("Evaluating Model on dev set ...")
 
-            print("Evaluating Model on dev set ...")
-
-            dev_f1 = dev_step()
-            #  sys.exit()
-
-            if dev_f1 > best_f1:
-
-                best_f1 = dev_f1
-                print("Saving model ...")
-                torch.save(mymodel.state_dict(),
-                           open(os.path.join(config.save_dir, "minibatch", "epoch__%d__minibatch_%d" % (i, j)), "wb"))
-                torch.save(mymodel.state_dict(), open(config.save_model_path, "wb"))
+    dev_f1 = dev_step()
+    cur_patience += 1
+    if dev_f1 > best_f1:
+        cur_patience = 0
+        best_f1 = dev_f1
+        print("Saving model ...")
+        torch.save(mymodel.state_dict(),
+                    open(os.path.join(config.save_dir, "minibatch", "epoch__%d_model" % i), "wb"))
+        torch.save(mymodel.state_dict(), open(config.save_model_path, "wb"))
+    if cur_patience > config.patience:
+        break

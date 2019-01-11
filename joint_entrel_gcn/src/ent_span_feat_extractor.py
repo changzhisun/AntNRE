@@ -14,13 +14,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from allennlp.modules.span_extractors.endpoint_span_extractor import EndpointSpanExtractor
+from allennlp.modules.span_extractors.span_extractor import SpanExtractor
 
 class EntSpanFeatExtractor(nn.Module):
 
     def __init__(self,
                  hidden_size,
-                 ent_ids_span_extractor: EndpointSpanExtractor,
+                 ent_ids_span_extractor: SpanExtractor,
                  dropout: float,
                  use_cuda: bool) -> None:
         super(EntSpanFeatExtractor, self).__init__()
@@ -39,6 +39,7 @@ class EntSpanFeatExtractor(nn.Module):
             ent_ids_batch['seq_feats'],
             ent_ids_batch['all_ent_ids'])
         ent_ids_span_feats = self.ent2hidden(ent_ids_span_feats.squeeze(1))
+        #  print(ent_ids_span_feats.size())
         return ent_ids_batch, ent_ids_span_feats
 
     def create_ent_ids_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:

@@ -273,11 +273,11 @@ def report(entity_counts, relation_counts, out=None):
     if out is None:
         out = sys.stdout
     print("--------------------------------Entity---------------------------------\n")
-    entity_score = report_count(entity_counts, out)
+    entity = report_count(entity_counts, out)
     print("\n-------------------------------Relation--------------------------------\n")
-    relation_score = report_count(relation_counts, out)
+    relation = report_count(relation_counts, out)
     print("\n-----------------------------------------------------------------------\n")
-    return entity_score, relation_score
+    return entity, relation
 
 def report_by_sample(entity_counts, relation_counts, out=None):
     if out is None:
@@ -312,7 +312,7 @@ def report_count(counts, out):
         out.write('precision: %6.2f%%; ' % (100.*m.prec))
         out.write('recall: %6.2f%%; ' % (100.*m.rec))
         out.write('FB1: %6.2f  %d\n' % (100.*m.fscore, c.t_found_guessed[i]))
-    return overall.fscore
+    return overall
 
 def report_count_by_sample(counts, out):
     overall, by_type = metrics(counts)

@@ -26,6 +26,8 @@ from antNRE.modules.seq2seq_encoders.seq2seq_bilstm import BiLSTMEncoder
 from antNRE.src.seq_decoder import SeqSoftmaxDecoder
 from antNRE.src.decoder import VanillaSoftmaxDecoder
 from antNRE.src.word_encoder import WordCharEncoder
+from antNRE.modules.span_extractors.sum_span_extractor import SumSpanExtractor
+from antNRE.modules.span_extractors.cnn_span_extractor import CnnSpanExtractor
 from entrel_eval import eval_file
 from src.joint_model import JointModel
 from src.ent_span_feat_extractor import EntSpanFeatExtractor
@@ -104,16 +106,30 @@ seq2seq_encoder_kwargs = {
 seq2seq_encoder = BiLSTMEncoder(**seq2seq_encoder_kwargs)
 ent_span_decoder = SeqSoftmaxDecoder(hidden_size=seq2seq_encoder.get_output_dim(),
                                      tag_size=vocab.get_vocab_size("ent_span_labels"))
-ent_ids_span_extractor = EndpointSpanExtractor(
-    input_dim = config.lstm_hiddens)
+#  ent_ids_span_extractor = EndpointSpanExtractor(
+    #  input_dim = config.lstm_hiddens)
+#  ent_ids_span_extractor = SumSpanExtractor(
+    #  input_dim = config.lstm_hiddens)
+ent_ids_span_extractor = CnnSpanExtractor(
+    config.lstm_hiddens,
+    config.rel_output_channels,
+    config.rel_kernel_sizes)
+print(ent_ids_span_extractor)
 ent_span_feat_extractor = EntSpanFeatExtractor(
     config.lstm_hiddens,
     ent_ids_span_extractor,
     config.dropout,
     config.use_cuda)
 
-context_span_extractor = BidirectionalEndpointSpanExtractor(
-    input_dim = config.lstm_hiddens)
+#  context_span_extractor = BidirectionalEndpointSpanExtractor(
+    #  input_dim = config.lstm_hiddens)
+context_span_extractor = CnnSpanExtractor(
+    config.lstm_hiddens,
+    config.rel_output_channels,
+    config.rel_kernel_sizes)
+#  context_span_extractor = SumSpanExtractor(
+    #  input_dim = config.lstm_hiddens)
+print(context_span_extractor)
 rel_feat_extractor = RelFeatExtractor(
     config.lstm_hiddens,
     context_span_extractor,

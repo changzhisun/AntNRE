@@ -14,13 +14,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from allennlp.modules.span_extractors.bidirectional_endpoint_span_extractor import BidirectionalEndpointSpanExtractor
+from allennlp.modules.span_extractors.span_extractor import SpanExtractor
 
 class RelFeatExtractor(nn.Module):
 
     def __init__(self,
                  hidden_size,
-                 context_span_extractor: BidirectionalEndpointSpanExtractor,
+                 context_span_extractor: SpanExtractor,
                  dropout: float,
                  use_cuda: bool) -> None:
         super(RelFeatExtractor, self).__init__()
@@ -65,7 +65,8 @@ class RelFeatExtractor(nn.Module):
             num_span = len(span)
             all_seq_feats.extend([batch['seq_feats'][i] for _ in range(num_span)])
         if len(all_seq_feats) == 0:
-            return cache_ent_span_feats
+            return [{"E1E2": d, "LMR": {}}
+                    for d in cache_ent_span_feats]
 
         all_seq_feats = torch.stack(all_seq_feats)
         all_context_span_tensor = torch.LongTensor(all_context_spans).unsqueeze(1)
@@ -79,9 +80,7 @@ class RelFeatExtractor(nn.Module):
 
         cache_span_feats = []
         for ent_span_dict, context_span_dict in zip(cache_ent_span_feats, cache_context_span_feat):
-            new_dict = {}
-            new_dict.update(ent_span_dict)
-            new_dict.update(context_span_dict)
+            new_dict = {"E1E2": ent_span_dict, "LMR": context_span_dict}
             cache_span_feats.append(new_dict)
         return cache_span_feats
 
@@ -115,20 +114,20 @@ class RelFeatExtractor(nn.Module):
                 if L[0] > L[1]:
                     rel_batch['L'].append(self.zero_feat)
                 else:
-                    rel_batch['L'].append(span2feat[L])
+                    rel_batch['L'].append(span2feat["LMR"][L])
 
                 if M[0] > M[1]:
                     rel_batch['M'].append(self.zero_feat)
                 else:
-                    rel_batch['M'].append(span2feat[M])
+                    rel_batch['M'].append(span2feat["LMR"][M])
 
                 if R[0] > R[1]:
                     rel_batch['R'].append(self.zero_feat)
                 else:
-                    rel_batch['R'].append(span2feat[R])
+                    rel_batch['R'].append(span2feat["LMR"][R])
 
-                rel_batch['E1'].append(span2feat[e1])
-                rel_batch['E2'].append(span2feat[e2])
+                rel_batch['E1'].append(span2feat["E1E2"][e1])
+                rel_batch['E2'].append(span2feat["E1E2"][e2])
         rel_batch['E1'] = torch.stack(rel_batch['E1'])
         rel_batch['E2'] = torch.stack(rel_batch['E2'])
 
