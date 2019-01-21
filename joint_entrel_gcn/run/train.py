@@ -34,6 +34,7 @@ from entrel_eval import Metrics
 from src.joint_model import JointModel
 from src.ent_span_feat_extractor import EntSpanFeatExtractor
 from src.rel_feat_extractor import RelFeatExtractor
+from src.graph_cnn_encoder import GCN 
 import lib.util as myutil
 
 torch.manual_seed(5216) # CPU random seed
@@ -141,10 +142,16 @@ rel_feat_extractor = RelFeatExtractor(
     config.use_cuda)
 
 
-ent_ids_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
+ent_ids_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens * 2,
                                         tag_size=vocab.get_vocab_size("ent_ids_labels"))
-rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
+rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens * 2,
                                     tag_size=vocab.get_vocab_size("rel_labels"))
+gcn = GCN(config.lstm_hiddens,
+          config.lstm_hiddens,
+          config.gcn_layers,
+          config.gcn_beta,
+          config.dropout)
+print(gcn)
 mymodel = JointModel(word_encoder,
                      seq2seq_encoder,
                      ent_span_decoder, 
@@ -152,7 +159,9 @@ mymodel = JointModel(word_encoder,
                      ent_ids_decoder,
                      rel_feat_extractor,
                      rel_decoder,
+                     gcn,
                      vocab,
+                     config.schedule_k,
                      config.use_cuda)
 
 util.assign_embeddings(word_encoder.word_embeddings, pretrained_embeddings)
@@ -191,6 +200,7 @@ def create_batch_list(sort_batch_tensor: Dict[str, Any],
 
 def step(batch: List[Dict]) -> (List[Dict], Dict):
     sort_batch_tensor = myutil.get_minibatch(batch, vocab, config.use_cuda)
+    sort_batch_tensor['i_epoch'] = i
     outputs = mymodel(sort_batch_tensor)
     new_batch = create_batch_list(sort_batch_tensor, outputs)
     batch_outputs = {}
@@ -277,6 +287,7 @@ for i in range(config.train_iters):
         batch = train_corpus[j: j + batch_size]
 
         train_step(batch)
+        #  sys.exit()
         num_iter += 1
 
     print("Evaluating Model on dev set ...")
@@ -290,5 +301,5 @@ for i in range(config.train_iters):
         torch.save(mymodel.state_dict(),
                     open(os.path.join(config.save_dir, "minibatch", "epoch__%d_model" % i), "wb"))
         torch.save(mymodel.state_dict(), open(config.save_model_path, "wb"))
-    if cur_patience > config.patience:
-        break
+    #  if cur_patience > config.patience:
+        #  break

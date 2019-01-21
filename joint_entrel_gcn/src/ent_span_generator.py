@@ -34,12 +34,12 @@ class EntSpanGenerator:
 
     def forward(self,
                 batch: Dict[str, Any],
-                ent_span_outputs: Dict[str, Any],
+                all_ent_span_pred: torch.LongTensor,
                 training: bool) -> (List[List[Tuple]], List[List[int]]):
         all_ent_ids = []
         all_ent_ids_label = []
         for i in range(len(batch['tokens'])):
-            ent_span_pred = ent_span_outputs['predict'][i]
+            ent_span_pred = all_ent_span_pred[i]
             seq_len = batch['seq_lens'][i]
             gold_ent_ids = batch['ent_ids'][i]
             gold_ent_ids_label = batch['ent_ids_labels'][i]
@@ -63,7 +63,12 @@ class EntSpanGenerator:
              for t in ent_span_labels]
         y = [ yy if yy == "O" else yy + "-ENT" for yy in y]
         t_entity = self.get_entity(y)
-        for e in t_entity['ENT']:
+        all_ent_set = set(t_entity['ENT'])
+        #  if training:
+            #  gold_ent_set = set(gold_dict.keys())
+            #  all_ent_set = all_ent_set | gold_ent_set
+        sort_all_ent_set = sorted(all_ent_set, key=lambda x: x[0])
+        for e in sort_all_ent_set:
             cur_ent_ids.append(e)
             if e in gold_dict:
                 cur_ent_ids_label.append(gold_dict[e])

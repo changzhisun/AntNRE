@@ -29,9 +29,11 @@ from antNRE.src.word_encoder import WordCharEncoder
 from antNRE.modules.span_extractors.sum_span_extractor import SumSpanExtractor
 from antNRE.modules.span_extractors.cnn_span_extractor import CnnSpanExtractor
 from entrel_eval import eval_file
+from entrel_eval import Metrics
 from src.joint_model import JointModel
 from src.ent_span_feat_extractor import EntSpanFeatExtractor
 from src.rel_feat_extractor import RelFeatExtractor
+from src.graph_cnn_encoder import GCN 
 import lib.util as myutil
 
 torch.manual_seed(5216) # CPU random seed
@@ -137,10 +139,16 @@ rel_feat_extractor = RelFeatExtractor(
     config.use_cuda)
 
 
-ent_ids_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
+ent_ids_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens * 2,
                                         tag_size=vocab.get_vocab_size("ent_ids_labels"))
-rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
+rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens * 2,
                                     tag_size=vocab.get_vocab_size("rel_labels"))
+gcn = GCN(config.lstm_hiddens,
+          config.lstm_hiddens,
+          config.gcn_layers,
+          config.gcn_beta,
+          config.dropout)
+print(gcn)
 mymodel = JointModel(word_encoder,
                      seq2seq_encoder,
                      ent_span_decoder, 
@@ -148,7 +156,9 @@ mymodel = JointModel(word_encoder,
                      ent_ids_decoder,
                      rel_feat_extractor,
                      rel_decoder,
+                     gcn,
                      vocab,
+                     config.schedule_k,
                      config.use_cuda)
 
 if config.use_cuda:

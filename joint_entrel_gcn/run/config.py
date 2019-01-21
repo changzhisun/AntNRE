@@ -90,6 +90,14 @@ class Configurable:
         return self._config.getint('Network','lstm_layers')
 
     @property
+    def gcn_layers(self):
+        return self._config.getint('Network','gcn_layers')
+
+    @property
+    def gcn_beta(self):
+        return self._config.getfloat('Network','gcn_beta')
+
+    @property
     def word_dims(self):
         return self._config.getint('Network','word_dims')
 
