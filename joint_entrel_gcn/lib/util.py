@@ -279,4 +279,15 @@ def print_ent_span_predictions(datasets: List,
                 if pred_label != "O":
                     pred_label = pred_label + "-ENT"
                 print("{}\t{}\t{}".format(token, true_label, pred_label), file=f)
+            for (s, e), r in zip(instance['candi_rels'], instance['rel_labels']):
+                r = vocab.get_token_from_index(r, "rel_labels")
+
+                assert r != "None"
+                r = "YES"
+                print("Rel-True\t{}\t{}\t{}".format(s, e, r), file=f)
+
+            for (s, e), r in zip(instance['all_candi_rels'], instance['all_bin_rel_pred']):
+                if r == 0:
+                    continue
+                print("Rel-Pred\t{}\t{}\t{}".format(s, e, "YES"), file=f)
             print(file=f)

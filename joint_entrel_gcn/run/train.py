@@ -146,6 +146,8 @@ ent_ids_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens * 2,
                                         tag_size=vocab.get_vocab_size("ent_ids_labels"))
 rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens * 2,
                                     tag_size=vocab.get_vocab_size("rel_labels"))
+bin_rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
+                                        tag_size=2)
 gcn = GCN(config.lstm_hiddens,
           config.lstm_hiddens,
           config.gcn_layers,
@@ -159,6 +161,7 @@ mymodel = JointModel(word_encoder,
                      ent_ids_decoder,
                      rel_feat_extractor,
                      rel_decoder,
+                     bin_rel_decoder,
                      gcn,
                      vocab,
                      config.schedule_k,
@@ -193,6 +196,7 @@ def create_batch_list(sort_batch_tensor: Dict[str, Any],
         instance['all_ent_pred'] = outputs['all_ent_pred'][k]
         instance['all_candi_rels'] = outputs['all_candi_rels'][k]
         instance['all_rel_pred'] = outputs['all_rel_pred'][k]
+        instance['all_bin_rel_pred'] = outputs['all_bin_rel_pred'][k]
         #  print(instance['all_rel_pred'])
         assert len(instance['all_candi_rels']) == len(instance['all_rel_pred'])
         new_batch.append(instance)
@@ -207,25 +211,28 @@ def step(batch: List[Dict]) -> (List[Dict], Dict):
     batch_outputs['ent_span_loss'] = outputs['ent_span_loss']
     batch_outputs['ent_ids_loss'] = outputs['ent_ids_loss']
     batch_outputs['rel_loss'] = outputs['rel_loss']
+    batch_outputs['bin_rel_loss'] = outputs['bin_rel_loss']
     return new_batch, batch_outputs
 
 def train_step(batch: List[Dict]) -> None:
     optimizer.zero_grad()
     mymodel.train()
     _, outputs = step(batch)
-    loss = outputs['ent_span_loss'] + outputs['ent_ids_loss'] + outputs['rel_loss']
+    loss = outputs['ent_span_loss'] + outputs['ent_ids_loss'] + outputs['rel_loss'] + outputs['bin_rel_loss']
     loss.backward()
     torch.nn.utils.clip_grad_norm_(parameters, config.clip_c)
     optimizer.step()
-    print("Epoch : %d Minibatch : %d Loss : %.5f(%.5f, %.5f, %.5f)" % (
+    print("Epoch : %d Minibatch : %d Loss : %.5f(%.5f, %.5f, %.5f, %.5f)" % (
           i, j, loss.item(),
           outputs['ent_span_loss'].item(),
           outputs['ent_ids_loss'].item(),
-          outputs['rel_loss'].item()))
+          outputs['rel_loss'].item(),
+          outputs['bin_rel_loss'].item()))
     writer.add_scalar("Train/Loss", loss.item(), num_iter)
     writer.add_scalar("Train/EntSpanLoss", outputs['ent_span_loss'].item(), num_iter)
     writer.add_scalar("Train/EntLoss", outputs['ent_ids_loss'].item(), num_iter)
     writer.add_scalar("Train/RelLoss", outputs['rel_loss'].item(), num_iter)
+    writer.add_scalar("Train/BinRelLoss", outputs['bin_rel_loss'].item(), num_iter)
 
 
 def dev_step() -> float: 
@@ -235,6 +242,7 @@ def dev_step() -> float:
     ent_span_losses = []
     ent_ids_losses = []
     rel_losses = []
+    bin_rel_losses = []
     for k in range(0, len(dev_corpus), batch_size):
         batch = dev_corpus[k: k + batch_size]
         new_batch, outputs = step(batch)
@@ -242,27 +250,31 @@ def dev_step() -> float:
         ent_span_losses.append(outputs['ent_span_loss'].item())
         ent_ids_losses.append(outputs['ent_ids_loss'].item())
         rel_losses.append(outputs['rel_loss'].item())
+        bin_rel_losses.append(outputs['bin_rel_loss'].item())
     avg_ent_span_loss = np.mean(ent_span_losses)
     avg_ent_ids_loss = np.mean(ent_ids_losses)
     avg_rel_loss = np.mean(rel_losses)
-    loss = avg_ent_span_loss + avg_ent_ids_loss + avg_rel_loss
+    avg_bin_rel_loss = np.mean(bin_rel_losses)
+    loss = avg_ent_span_loss + avg_ent_ids_loss + avg_rel_loss + avg_bin_rel_loss
 
-    print("Epoch : %d Avg Loss : %.5f(%.5f, %.5f, %.5f)" % (
+    print("Epoch : %d Avg Loss : %.5f(%.5f, %.5f, %.5f, %.5f)" % (
           i, loss,
           avg_ent_span_loss, 
           avg_ent_ids_loss,
-          avg_rel_loss))
+          avg_rel_loss,
+          avg_bin_rel_loss))
     writer.add_scalar("Dev/Loss", loss, num_iter)
     writer.add_scalar("Dev/EntSpanLoss", avg_ent_span_loss, num_iter)
     writer.add_scalar("Dev/EntLoss", avg_ent_ids_loss, num_iter)
     writer.add_scalar("Dev/RelLoss", avg_rel_loss, num_iter)
+    writer.add_scalar("Dev/BinRelLoss", avg_bin_rel_loss, num_iter)
 
     eval_path = os.path.join(config.save_dir, "validate.dev.output")
     eval_ent_span_path = os.path.join(config.save_dir, "validate.dev.output.ent_span")
     myutil.print_predictions(new_corpus, eval_path, vocab)
-    #  myutil.print_ent_span_predictions(new_corpus, eval_ent_span_path, vocab)
+    myutil.print_ent_span_predictions(new_corpus, eval_ent_span_path, vocab)
     entity, relation= eval_file(eval_path)
-    #  eval_file(eval_ent_span_path)
+    eval_file(eval_ent_span_path)
 
 
     writer.add_scalar("Dev/EntPrecision", entity.prec, num_iter)

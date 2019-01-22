@@ -37,6 +37,7 @@ class JointModel(nn.Module):
                  ent_ids_decoder: VanillaSoftmaxDecoder,
                  rel_feat_extractor: RelFeatExtractor,
                  rel_decoder: VanillaSoftmaxDecoder,
+                 bin_rel_decoder: VanillaSoftmaxDecoder,
                  gcn: GCN,
                  vocab: Vocabulary,
                  sch_k: float,
@@ -49,6 +50,7 @@ class JointModel(nn.Module):
         self.ent_ids_decoder = ent_ids_decoder
         self.rel_feat_extractor = rel_feat_extractor
         self.rel_decoder = rel_decoder
+        self.bin_rel_decoder = bin_rel_decoder
         self.vocab = vocab
         self.sch_k = sch_k
         self.use_cuda = use_cuda
@@ -96,7 +98,9 @@ class JointModel(nn.Module):
             outputs['ent_ids_loss'] = zero_loss
             outputs['all_ent_pred'] = batch_tag
             outputs['rel_loss'] = zero_loss
+            outputs['bin_rel_loss'] = zero_loss
             outputs['all_rel_pred'] = [[] for _ in range(batch_size)]
+            outputs['all_bin_rel_pred'] = [[] for _ in range(batch_size)]
             outputs['all_candi_rels'] = [[] for _ in range(batch_size)]
             return outputs
 
@@ -110,15 +114,17 @@ class JointModel(nn.Module):
         ent_ids_batch, ent_ids_span_feats = self.ent_span_feat_extractor(batch)
         if candi_rel_num > 0:
             rel_batch = self.rel_feat_extractor(batch, ent_ids_span_feats)
-            #  print(candi_rel_num)
-            #  print([len(e) for e in all_candi_rels])
-            #  print(rel_batch['inputs'].size())
             assert candi_rel_num == rel_batch['inputs'].size(0)
+            rel_batch['all_bin_rel_labels'] = (rel_batch['all_rel_labels'] != self.vocab.get_token_index("None", "rel_labels")).long()
+            bin_rel_outputs = self.bin_rel_decoder(
+                rel_batch['inputs'], rel_batch['all_bin_rel_labels'])
+            bin_rel_pred = bin_rel_outputs['predict']
         else:
             rel_batch = None
+            bin_rel_pred = None
 
         all_ent_gcn_feats, all_rel_gcn_feats = self.gcn_extractor(
-            batch, ent_ids_span_feats, rel_batch)
+            batch, ent_ids_span_feats, rel_batch, bin_rel_pred)
 
         all_ent_feats = torch.cat([ent_ids_span_feats, all_ent_gcn_feats], 1)
         
@@ -137,7 +143,9 @@ class JointModel(nn.Module):
 
             batch_size, _ = batch['tokens'].size()
             outputs['rel_loss'] = zero_loss
+            outputs['bin_rel_loss'] = zero_loss
             outputs['all_rel_pred'] = [[] for _ in range(batch_size)]
+            outputs['all_bin_rel_pred'] = [[] for _ in range(batch_size)]
             outputs['all_candi_rels'] = [[] for _ in range(batch_size)]
             return outputs
 
@@ -156,8 +164,25 @@ class JointModel(nn.Module):
         outputs['rel_loss'] = rel_outputs['loss']
 
         #  all_rel_pred = self.create_all_rel_pred(all_candi_rels, rel_outputs['predict'])
-        outputs['all_rel_pred'] = []
-        outputs['all_candi_rels'] = []
+        all_candi_rels, all_rel_pred, all_bin_rel_pred = self.create_all_rel_pred(
+            all_candi_rels, batch, ent_ids_outputs, rel_outputs, bin_rel_outputs)
+
+        outputs['all_rel_pred'] = all_rel_pred
+        outputs['all_bin_rel_pred'] = all_bin_rel_pred
+        outputs['all_candi_rels'] = all_candi_rels
+        outputs['bin_rel_loss'] = bin_rel_outputs['loss'] 
+        return outputs
+
+    def create_all_rel_pred(
+            self, 
+            all_candi_rels: List[List[Tuple[Tuple, Tuple]]],
+            batch: Dict[str, Any],
+            ent_ids_outputs: Dict[str, Any],
+            rel_outputs: Dict[str, Any],
+            bin_rel_outputs: Dict[str, Any]) -> (List[List[Tuple]], List[List[int]], List[List[int]]):
+        ret_rel_pred = []
+        ret_candi_rels = []
+        ret_bin_rel_pred = []
         i_ent = 0
         i_rel = 0
         for i in range(len(all_candi_rels)):
@@ -170,6 +195,7 @@ class JointModel(nn.Module):
 
             ent_ids_dict = {k: v for k, v in zip(cur_ent_ids, cur_ent_ids_pred)}
             cur_rel_pred = []
+            cur_bin_rel_pred = []
             tmp_candi_rels = []
             for e1, e2 in cur_candi_rels:
                 e1_label = ent_ids_dict[e1].item()
@@ -183,21 +209,12 @@ class JointModel(nn.Module):
                 t_candi_rels = ((e1[0], e1[1]+1), (e2[0], e2[1]+1))
                 tmp_candi_rels.append(t_candi_rels)
                 cur_rel_pred.append(rel_outputs["predict"][i_rel].item())
+                cur_bin_rel_pred.append(bin_rel_outputs["predict"][i_rel].item())
                 i_rel += 1
-            outputs['all_rel_pred'].append(cur_rel_pred)
-            outputs['all_candi_rels'].append(tmp_candi_rels)
-        return outputs
-
-    def create_all_rel_pred(self, 
-                            all_candi_rels: List[List[Tuple[Tuple, Tuple]]],
-                            predict: torch.LongTensor) -> List[List[int]]:
-        all_rel_pred = []
-        j = 0
-        for i in range(len(all_candi_rels)):
-            candi_num = len(all_candi_rels[i])
-            all_rel_pred.append(predict[j: j + candi_num].cpu().numpy())
-            j += candi_num
-        return all_rel_pred
+            ret_rel_pred.append(cur_rel_pred)
+            ret_candi_rels.append(tmp_candi_rels)
+            ret_bin_rel_pred.append(cur_bin_rel_pred)
+        return ret_candi_rels, ret_rel_pred, ret_bin_rel_pred
 
     def create_all_ent_pred(self,
                             batch: Dict[str, Any],

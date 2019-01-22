@@ -143,6 +143,8 @@ ent_ids_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens * 2,
                                         tag_size=vocab.get_vocab_size("ent_ids_labels"))
 rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens * 2,
                                     tag_size=vocab.get_vocab_size("rel_labels"))
+bin_rel_decoder = VanillaSoftmaxDecoder(hidden_size=config.lstm_hiddens,
+                                        tag_size=2)
 gcn = GCN(config.lstm_hiddens,
           config.lstm_hiddens,
           config.gcn_layers,
@@ -156,6 +158,7 @@ mymodel = JointModel(word_encoder,
                      ent_ids_decoder,
                      rel_feat_extractor,
                      rel_decoder,
+                     bin_rel_decoder,
                      gcn,
                      vocab,
                      config.schedule_k,
@@ -186,6 +189,7 @@ def create_batch_list(sort_batch_tensor: Dict[str, Any],
         instance['all_ent_pred'] = outputs['all_ent_pred'][k]
         instance['all_candi_rels'] = outputs['all_candi_rels'][k]
         instance['all_rel_pred'] = outputs['all_rel_pred'][k]
+        instance['all_bin_rel_pred'] = outputs['all_bin_rel_pred'][k]
         assert len(instance['all_candi_rels']) == len(instance['all_rel_pred'])
         new_batch.append(instance)
     return new_batch
