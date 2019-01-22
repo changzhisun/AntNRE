@@ -38,4 +38,5 @@ class VanillaSoftmaxDecoder(nn.Module):
         outputs = {}
         outputs['loss'] = ave_loss
         outputs['predict'] = batch_pred_tags
+        outputs['softmax_probs'] = F.softmax(batch_feats, dim=1)
         return outputs
