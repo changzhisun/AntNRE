@@ -118,13 +118,13 @@ class JointModel(nn.Module):
             rel_batch['all_bin_rel_labels'] = (rel_batch['all_rel_labels'] != self.vocab.get_token_index("None", "rel_labels")).long()
             bin_rel_outputs = self.bin_rel_decoder(
                 rel_batch['inputs'], rel_batch['all_bin_rel_labels'])
-            bin_rel_pred = bin_rel_outputs['predict']
+            bin_rel_probs = bin_rel_outputs['softmax_probs'][:, 1]
         else:
             rel_batch = None
-            bin_rel_pred = None
+            bin_rel_probs = None
 
         all_ent_gcn_feats, all_rel_gcn_feats = self.gcn_extractor(
-            batch, ent_ids_span_feats, rel_batch, bin_rel_pred)
+            batch, ent_ids_span_feats, rel_batch, bin_rel_probs)
 
         all_ent_feats = torch.cat([ent_ids_span_feats, all_ent_gcn_feats], 1)
         

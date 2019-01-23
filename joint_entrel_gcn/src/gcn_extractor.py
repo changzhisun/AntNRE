@@ -31,7 +31,7 @@ class GCNExtractor(nn.Module):
                 batch: Dict[str, Any],
                 ent_feats: torch.FloatTensor,
                 rel_batch: Dict[str, Any],
-                bin_rel_pred: Optional[torch.LongTensor]) -> (torch.FloatTensor, Optional[torch.FloatTensor]):
+                bin_rel_probs: Optional[torch.FloatTensor]) -> (torch.FloatTensor, Optional[torch.FloatTensor]):
         all_ent_gcn_feats = []
         all_rel_gcn_feats = []
         rel_feats = rel_batch['inputs'] if rel_batch is not None else None
@@ -64,13 +64,11 @@ class GCNExtractor(nn.Module):
                 #  adj[:cur_ent_ids_len, : cur_ent_ids_len] = 1.0
                 #  adj[range(cur_ent_ids_len), range(cur_ent_ids_len)] = 0
                 for j in range(cur_candi_rels_len):
-                    if bin_rel_pred is not None and bin_rel_pred[i_rel + j].item() == 0:
-                        continue
                     e1, e2 = cur_candi_rels[j]
-                    adj[ent2id[e1], cur_ent_ids_len + j] = 1.0
-                    adj[ent2id[e2], cur_ent_ids_len + j] = 1.0
-                    adj[cur_ent_ids_len + j, ent2id[e1]] = 1.0
-                    adj[cur_ent_ids_len + j, ent2id[e2]] = 1.0
+                    adj[ent2id[e1], cur_ent_ids_len + j] = bin_rel_probs[i_rel + j].item()
+                    adj[ent2id[e2], cur_ent_ids_len + j] = bin_rel_probs[i_rel + j].item()
+                    adj[cur_ent_ids_len + j, ent2id[e1]] = bin_rel_probs[i_rel + j].item()
+                    adj[cur_ent_ids_len + j, ent2id[e2]] = bin_rel_probs[i_rel + j].item()
                     #  print(cur_ent_ids_len + j, e1, e2)
                 adj = sp.coo_matrix(adj)
                 #  print(adj)
